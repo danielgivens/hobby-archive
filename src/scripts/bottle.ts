@@ -28,10 +28,10 @@ const GLASS_PROFILE: [number, number][] = [
 ];
 
 export const BOTTLE_HEIGHT = 4.5;
-const BODY_RADIUS = 0.6;
+export const BODY_RADIUS = 0.6;
 // Label band sits inside the straight body with a clear margin of glass above and below.
-const LABEL_BOTTOM = 0.38;
-const LABEL_TOP = 2.26;
+export const LABEL_BOTTOM = 0.38;
+export const LABEL_TOP = 2.26;
 const LABEL_MAX_THETA = Math.PI * 2 * 0.93; // leave a seam gap at the back
 const SAUCE_FILL = 3.5; // sauce sits partway up the neck, leaving clear glass above
 const GLASS_WALL = 0.03;

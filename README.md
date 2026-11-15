@@ -1,6 +1,7 @@
 # Hobby Hot Sauce — Label Archive
 
 Astro + Three.js + GSAP Observer. Swipe, drag, scroll or use the arrow keys; the shelf of bottles loops forever.
+Press and hold the centred bottle to zoom in on its label; drag while holding to turn it.
 
 ```bash
 npm install
