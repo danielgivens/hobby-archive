@@ -87,11 +87,15 @@ export function initShelf() {
   // reader drifts out of the middle lap we silently jump the scroll by one lap. Bottles are
   // placed modulo n, so the jump is invisible.
   const state = { index: -1, target: n, current: n };
-  const perBottle = () => innerHeight * SCROLL_PER_BOTTLE;
+
+  // All scroll math uses the *large* viewport height (100lvh), which doesn't change when a
+  // phone's address bar slides in and out, so the shelf never re-measures mid-scroll.
+  let lvh = measureLvh();
+  const perBottle = () => lvh * SCROLL_PER_BOTTLE;
   const lapPx = () => n * perBottle();
 
   function sizeTrack() {
-    track!.style.height = `${COPIES * lapPx() + innerHeight}px`;
+    track!.style.height = `${COPIES * lapPx() + lvh}px`;
   }
   sizeTrack();
 
@@ -108,12 +112,24 @@ export function initShelf() {
     window.scrollTo(0, scrollY + bottlesDelta * perBottle());
   }
 
-  const trigger = ScrollTrigger.create({
+  // Don't refresh ScrollTrigger when only the mobile toolbar changes the height.
+  ScrollTrigger.config({ ignoreMobileResize: true });
+
+  ScrollTrigger.create({
     trigger: track,
     start: 'top top',
     end: 'bottom bottom',
-    snap: { snapTo: 1 / (COPIES * n), duration: { min: 0.2, max: 0.6 }, ease: 'power2.inOut' },
-    onRefresh: sizeTrack,
+    // Snap in pixels (one bottle = perBottle), so it stays aligned whatever the
+    // visible viewport height is at the moment.
+    snap: {
+      snapTo: (progress, self) => {
+        const range = self!.end - self!.start;
+        if (!range) return progress;
+        return (Math.round((progress * range) / perBottle()) * perBottle()) / range;
+      },
+      duration: { min: 0.2, max: 0.6 },
+      ease: 'power2.inOut',
+    },
     onUpdate(self) {
       const pos = self.scroll() / perBottle();
       // Keep the reader in the middle lap: jump before reaching either end of the track.
@@ -126,15 +142,19 @@ export function initShelf() {
 
   // Start on the first sauce in the middle lap.
   window.scrollTo(0, n * perBottle());
+
+  // Only re-lay out on real size changes (width / orientation), never on toolbar show/hide.
+  let lastWidth = innerWidth;
   addEventListener('resize', () => {
-    // Keep the same bottle in view when the viewport (and so the track) changes size.
+    if (innerWidth === lastWidth) return;
+    lastWidth = innerWidth;
     const keep = state.index;
+    lvh = measureLvh();
     sizeTrack();
     ScrollTrigger.refresh();
     window.scrollTo(0, (n + keep) * perBottle());
     state.current = state.target = n + keep;
   });
-  void trigger;
 
   // --- Render loop ----------------------------------------------------------
   const clock = new THREE.Clock();
@@ -155,4 +175,14 @@ export function initShelf() {
     });
     renderer.render(scene, camera);
   });
+}
+
+/** Pixel height of 100lvh (falls back to innerHeight where lvh isn't supported). */
+function measureLvh() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;top:0;left:0;width:0;height:100vh;height:100lvh;visibility:hidden;pointer-events:none';
+  document.body.appendChild(probe);
+  const h = probe.offsetHeight;
+  probe.remove();
+  return h || innerHeight;
 }
