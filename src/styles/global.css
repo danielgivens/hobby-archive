@@ -1,0 +1,42 @@
+:root {
+  --bg: #000000;
+  --ink: #f6efe6;
+  --muted: #b9a99a;
+  --accent: #ff4a1c;
+  --display: 'Anton', Impact, 'Arial Narrow Bold', sans-serif;
+  --body: 'Inter', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--bg); color: var(--ink); }
+body {
+  margin: 0;
+  font-family: var(--body);
+  line-height: 1.5;
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2 { font-family: var(--display); font-weight: 400; line-height: 0.92; margin: 0; text-transform: uppercase; }
+
+/* Shelf ------------------------------------------------------------------- */
+.shelf-track { position: relative; height: 300vh; }
+.shelf {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+}
+.shelf-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* Names are printed on the labels, so captions are for screen readers only. */
+.captions { list-style: none; margin: 0; padding: 0; }
+.caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.caption:not([aria-current]) { display: none; }
+
