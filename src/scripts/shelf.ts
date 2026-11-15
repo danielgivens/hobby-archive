@@ -1,26 +1,33 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { Observer } from 'gsap/Observer';
 import type { SauceForShelf } from '../lib/sauces';
 import { createBottle, BOTTLE_HEIGHT } from './bottle';
 
-gsap.registerPlugin(ScrollTrigger);
+gsap.registerPlugin(Observer);
 
 const SPACING = 2.0; // world units between bottles
-const SCROLL_PER_BOTTLE = 0.9; // viewport heights of scrolling per bottle
-const COPIES = 3; // the scroll track holds 3 laps; we keep the reader in the middle one
+const THROW_SECONDS = 0.35; // how far a flick carries: release velocity × this
+const MAX_THROW = 10; // bottles
+const WHEEL_SETTLE_MS = 160; // snap to a bottle this long after the wheel stops
+// How quickly the shelf catches up to its target each frame.
+const FOLLOW = { drag: 0.4, glide: 0.075, settle: 0.12 };
 
 /** Wrap x into [-n/2, n/2). */
 const wrapCentered = (x: number, n: number) => ((((x + n / 2) % n) + n) % n) - n / 2;
 const mod = (x: number, n: number) => ((x % n) + n) % n;
 
+/**
+ * The shelf is a fixed, full-screen canvas. The page itself never scrolls; swipes, drags,
+ * the wheel and arrow keys move a position measured in "bottles". It's unbounded and the
+ * bottles are placed modulo n, so the shelf loops forever.
+ */
 export function initShelf() {
-  const track = document.querySelector<HTMLElement>('[data-shelf-track]');
   const section = document.querySelector<HTMLElement>('[data-shelf]');
   const canvas = document.querySelector<HTMLCanvasElement>('[data-shelf-canvas]');
   const dataEl = document.getElementById('sauce-data');
-  if (!track || !section || !canvas || !dataEl) return;
+  if (!section || !canvas || !dataEl) return;
 
   const sauces: SauceForShelf[] = JSON.parse(dataEl.textContent || '[]');
   const n = sauces.length;
@@ -28,18 +35,16 @@ export function initShelf() {
 
   const captions = [...section.querySelectorAll<HTMLElement>('[data-caption]')];
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
   // --- Renderer / scene -----------------------------------------------------
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
 
   const scene = new THREE.Scene();
-  // Solid black inside the scene too. With a transparent canvas, the see-through
-  // sauce has nothing to refract and reads as white inside.
+  // Solid black inside the scene, so the see-through sauce has something dark to show.
   scene.background = new THREE.Color(0x000000);
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -65,6 +70,9 @@ export function initShelf() {
   });
 
   // --- Sizing ---------------------------------------------------------------
+  /** Screen pixels between neighbouring bottles; makes a drag track the finger 1:1. */
+  let pxPerBottle = 300;
+
   function resizeCanvas() {
     const w = canvas!.clientWidth;
     const h = canvas!.clientHeight;
@@ -73,31 +81,20 @@ export function initShelf() {
     camera.aspect = w / h;
     // Fill most of the height with the bottle; on phones keep ~1.3 bottles across.
     const vFov = THREE.MathUtils.degToRad(camera.fov);
-    const fitHeight = (BOTTLE_HEIGHT * 1.12) / 2 / Math.tan(vFov / 2);
+    const fitHeight = (BOTTLE_HEIGHT * 1.2) / 2 / Math.tan(vFov / 2);
     const fitWidth = (SPACING * 1.3) / 2 / Math.tan(vFov / 2) / camera.aspect;
-    camera.position.set(0, 0, Math.max(fitHeight, fitWidth));
+    const distance = Math.max(fitHeight, fitWidth);
+    camera.position.set(0, 0, distance);
     camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
+    const visibleWidth = 2 * distance * Math.tan(vFov / 2) * camera.aspect;
+    pxPerBottle = (SPACING / visibleWidth) * w;
   }
   // Observe the canvas itself: it can be 0×0 at startup if CSS arrives late.
   new ResizeObserver(resizeCanvas).observe(canvas);
 
-  // --- Infinite scroll ------------------------------------------------------
-  // Scroll position is measured in "bottles". The track is COPIES laps long; whenever the
-  // reader drifts out of the middle lap we silently jump the scroll by one lap. Bottles are
-  // placed modulo n, so the jump is invisible.
-  const state = { index: -1, target: n, current: n };
-
-  // All scroll math uses the *large* viewport height (100lvh), which doesn't change when a
-  // phone's address bar slides in and out, so the shelf never re-measures mid-scroll.
-  let lvh = measureLvh();
-  const perBottle = () => lvh * SCROLL_PER_BOTTLE;
-  const lapPx = () => n * perBottle();
-
-  function sizeTrack() {
-    track!.style.height = `${COPIES * lapPx() + lvh}px`;
-  }
-  sizeTrack();
+  // --- Input: swipe / drag / wheel / keys -----------------------------------
+  const state = { index: -1, target: 0, current: 0, follow: FOLLOW.settle };
 
   function setActive(i: number) {
     if (i === state.index) return;
@@ -106,62 +103,62 @@ export function initShelf() {
   }
   setActive(0);
 
-  function jump(bottlesDelta: number) {
-    state.current += bottlesDelta;
-    state.target += bottlesDelta;
-    window.scrollTo(0, scrollY + bottlesDelta * perBottle());
-  }
+  const goTo = (target: number, follow = FOLLOW.settle) => {
+    state.target = target;
+    state.follow = follow;
+    setActive(mod(Math.round(target), n));
+  };
+  const step = (dir: number) => goTo(Math.round(state.target) + dir);
+  /** Use whichever axis is moving more, so horizontal and vertical swipes both work. */
+  const dominant = (x: number, y: number) => (Math.abs(x) >= Math.abs(y) ? x : y);
 
-  // Don't refresh ScrollTrigger when only the mobile toolbar changes the height.
-  ScrollTrigger.config({ ignoreMobileResize: true });
-
-  ScrollTrigger.create({
-    trigger: track,
-    start: 'top top',
-    end: 'bottom bottom',
-    // Snap in pixels (one bottle = perBottle), so it stays aligned whatever the
-    // visible viewport height is at the moment.
-    snap: {
-      snapTo: (progress, self) => {
-        const range = self!.end - self!.start;
-        if (!range) return progress;
-        return (Math.round((progress * range) / perBottle()) * perBottle()) / range;
-      },
-      duration: { min: 0.2, max: 0.6 },
-      ease: 'power2.inOut',
+  // Drag follows the finger 1:1. On release the shelf is thrown with the finger's
+  // velocity, glides, and settles on the nearest bottle to where it would stop.
+  Observer.create({
+    target: section,
+    type: 'touch,pointer',
+    dragMinimum: 3,
+    preventDefault: true,
+    onPress() {
+      // Grab: stop any glide where it currently is.
+      goTo(state.current, FOLLOW.drag);
     },
-    onUpdate(self) {
-      const pos = self.scroll() / perBottle();
-      // Keep the reader in the middle lap: jump before reaching either end of the track.
-      if (pos < n * 0.5) return jump(n);
-      if (pos > n * 2.5) return jump(-n);
-      state.target = pos;
-      setActive(mod(Math.round(pos), n));
+    onDrag(self) {
+      goTo(state.target - dominant(self.deltaX, self.deltaY) / pxPerBottle, FOLLOW.drag);
+    },
+    onDragEnd(self) {
+      const v = dominant(self.velocityX, self.velocityY); // px per second
+      const thrown = gsap.utils.clamp(-MAX_THROW, MAX_THROW, (-v * THROW_SECONDS) / pxPerBottle);
+      goTo(Math.round(state.target + thrown), Math.abs(thrown) > 0.6 ? FOLLOW.glide : FOLLOW.settle);
     },
   });
 
-  // Start on the first sauce in the middle lap.
-  window.scrollTo(0, n * perBottle());
+  // Wheel / trackpad: moves freely with the gesture, then settles on a bottle.
+  let wheelTimer = 0;
+  Observer.create({
+    target: window,
+    type: 'wheel',
+    preventDefault: true,
+    onChange(self) {
+      goTo(state.target + dominant(self.deltaX, self.deltaY) / pxPerBottle, FOLLOW.drag);
+      clearTimeout(wheelTimer);
+      wheelTimer = window.setTimeout(() => goTo(Math.round(state.target), FOLLOW.glide), WHEEL_SETTLE_MS);
+    },
+  });
 
-  // Only re-lay out on real size changes (width / orientation), never on toolbar show/hide.
-  let lastWidth = innerWidth;
-  addEventListener('resize', () => {
-    if (innerWidth === lastWidth) return;
-    lastWidth = innerWidth;
-    const keep = state.index;
-    lvh = measureLvh();
-    sizeTrack();
-    ScrollTrigger.refresh();
-    window.scrollTo(0, (n + keep) * perBottle());
-    state.current = state.target = n + keep;
+  addEventListener('keydown', (e) => {
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) step(1);
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) step(-1);
+    else return;
+    e.preventDefault();
   });
 
   // --- Render loop ----------------------------------------------------------
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     const t = clock.getElapsedTime();
-    // Ease toward the scroll target so the shelf glides rather than steps.
-    state.current += (state.target - state.current) * (reduceMotion ? 1 : 0.12);
+    // Ease toward the target: tight while dragging, long and soft after a flick.
+    state.current += (state.target - state.current) * (reduceMotion ? 1 : state.follow);
 
     bottles.forEach((bottle, i) => {
       const offset = wrapCentered(i - state.current, n); // 0 = centred
@@ -175,14 +172,4 @@ export function initShelf() {
     });
     renderer.render(scene, camera);
   });
-}
-
-/** Pixel height of 100lvh (falls back to innerHeight where lvh isn't supported). */
-function measureLvh() {
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:absolute;top:0;left:0;width:0;height:100vh;height:100lvh;visibility:hidden;pointer-events:none';
-  document.body.appendChild(probe);
-  const h = probe.offsetHeight;
-  probe.remove();
-  return h || innerHeight;
 }

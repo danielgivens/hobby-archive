@@ -6,20 +6,17 @@ const sauces = await getSauces();
 const shelfData = sauces.map((s) => s.shelf);
 ---
 <Base title="Hobby Hot Sauce — Label Archive">
-  <!-- Tall scroll track; the shelf sticks inside it and the scroll position loops. -->
-  <div class="shelf-track" data-shelf-track>
-    <section class="shelf" data-shelf aria-label="Sauce shelf">
-      <canvas class="shelf-canvas" data-shelf-canvas aria-hidden="true"></canvas>
+  <section class="shelf" data-shelf aria-label="Sauce shelf. Swipe, scroll or use the arrow keys.">
+    <canvas class="shelf-canvas" data-shelf-canvas aria-hidden="true"></canvas>
 
-      <ol class="captions">
-        {shelfData.map((shelf, i) => (
-          <li class="caption" data-caption={i} aria-current={i === 0 ? 'true' : undefined}>
-            <h2>{shelf.name}</h2>
-          </li>
-        ))}
-      </ol>
-    </section>
-  </div>
+    <ol class="captions" aria-live="polite">
+      {shelfData.map((shelf, i) => (
+        <li class="caption" data-caption={i} aria-current={i === 0 ? 'true' : undefined}>
+          <h2>{shelf.name}</h2>
+        </li>
+      ))}
+    </ol>
+  </section>
 
   <script type="application/json" id="sauce-data" set:html={JSON.stringify(shelfData)} />
   <script>

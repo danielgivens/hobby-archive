@@ -19,15 +19,20 @@ body {
 h1, h2 { font-family: var(--display); font-weight: 400; line-height: 0.92; margin: 0; text-transform: uppercase; }
 
 /* Shelf ------------------------------------------------------------------- */
-.shelf-track { position: relative; height: 300vh; }
+/* The page never scrolls: the shelf is a fixed full-screen layer driven by swipes,
+   the wheel and arrow keys. With viewport-fit=cover it runs edge to edge, under
+   iOS Safari's translucent toolbars. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 .shelf {
-  position: sticky;
-  top: 0;
-  /* Large viewport height: fixed size that ignores the mobile address bar */
-  height: 100vh;
-  height: 100lvh;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
 }
+.shelf:active { cursor: grabbing; }
 .shelf-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* Names are printed on the labels, so captions are for screen readers only. */
 .captions { list-style: none; margin: 0; padding: 0; }

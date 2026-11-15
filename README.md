@@ -1,6 +1,6 @@
 # Hobby Hot Sauce — Label Archive
 
-Astro + Three.js + GSAP ScrollTrigger. Scroll down; the bottles travel sideways.
+Astro + Three.js + GSAP Observer. Swipe, drag, scroll or use the arrow keys; the shelf of bottles loops forever.
 
 ```bash
 npm install
@@ -53,7 +53,7 @@ square one wraps further around the bottle. Labels too wide to fit are scaled do
 | `src/lib/sauces.ts` | `getSauces()`: the one place data is read; also converts labels to ≤2048px WebP. |
 | `src/pages/index.astro` | Page markup and name captions; passes sauce JSON to the client. |
 | `src/scripts/bottle.ts` | Procedural bottle: glass, sauce, cap, wrapped label. |
-| `src/scripts/shelf.ts` | Renderer, infinite looping scroll (ScrollTrigger + sticky track), snapping. |
+| `src/scripts/shelf.ts` | Renderer and input: swipe/drag/wheel/keys move an endlessly looping shelf. |
 
 ## CMS
 
