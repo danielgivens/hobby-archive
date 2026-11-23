@@ -32,6 +32,7 @@ export const BODY_RADIUS = 0.6;
 // Label band sits inside the straight body with a clear margin of glass above and below.
 export const LABEL_BOTTOM = 0.38;
 export const LABEL_TOP = 2.26;
+const LABEL_EDGE_SHADE = 0.55; // brightness at the label's sides (1 = no shading)
 const LABEL_MAX_THETA = Math.PI * 2 * 0.93; // leave a seam gap at the back
 const SAUCE_FILL = 3.5; // sauce sits partway up the neck, leaving clear glass above
 const GLASS_WALL = 0.03;
@@ -114,16 +115,32 @@ function makeLabel(texture: THREE.Texture, sauce: SauceForShelf) {
     theta = LABEL_MAX_THETA;
   }
   const geometry = new THREE.CylinderGeometry(radius, radius, height, 96, 1, true, -theta / 2, theta);
-  const material = new THREE.MeshStandardMaterial({
+  // Labels show the artwork's own colours: no lights, no glossy reflection washing pale
+  // tints out to white. A soft darkening toward the sides keeps it reading as paper wrapped
+  // around a cylinder (full brightness where the label faces the camera).
+  const material = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
     alphaTest: 0.02,
-    roughness: 0.55,
-    metalness: 0,
     side: THREE.FrontSide,
-    // Keep the printed colours true to the artwork instead of running them through ACES.
     toneMapped: false,
   });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'varying float vFacing;\nvoid main() {')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        vFacing = max(dot(normalize(normalMatrix * normal), normalize(-mvPosition.xyz)), 0.0);`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'varying float vFacing;\nvoid main() {')
+      .replace(
+        '#include <opaque_fragment>',
+        `outgoingLight *= mix(${LABEL_EDGE_SHADE.toFixed(2)}, 1.0, pow(vFacing, 0.6));
+        #include <opaque_fragment>`,
+      );
+  };
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.y = LABEL_BOTTOM + areaHeight / 2;
   mesh.renderOrder = 2;
